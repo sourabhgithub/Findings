@@ -1,75 +1,81 @@
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-
-import java.io.IOException;
-
-import org.junit.jupiter.api.BeforeEach;
+import io.restassured.RestAssured;
+import io.restassured.http.ContentType;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.ActiveProfiles;
 
-class CashCoreUtilTest {
+import static io.restassured.RestAssured.*;
+import static org.hamcrest.Matchers.*;
 
-    @Mock
-    private Transaction mockTransaction;
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test") // Use test profile to avoid modifying real data
+public class DisclosuresControllerIT {
 
-    @Mock
-    private CutEncryptionHelper mockEncryptionHelper;
+    @LocalServerPort
+    private int port;
 
-    @BeforeEach
-    void setUp() {
-        MockitoAnnotations.openMocks(this);
-        when(mockEncryptionHelper.getInstance()).thenReturn(mockEncryptionHelper);
-        when(mockEncryptionHelper.encrypt(anyString())).thenReturn("encryptedValue");
+    @BeforeAll
+    public static void setup() {
+        RestAssured.baseURI = "http://localhost";
     }
 
     @Test
-    void testEncryptTransaction_Success() throws IOException {
-        // Mock transaction behavior
-        when(mockTransaction.getDbtrFIAccountNumber()).thenReturn("123456789");
-        when(mockTransaction.getCdrtFIAccountNumber()).thenReturn("987654321");
-        when(mockTransaction.getCashCtrlStVal("Pan")).thenReturn("testPan");
-        when(mockTransaction.getCrdrtrCtrlStVal("Pan")).thenReturn("testPan");
-        when(mockTransaction.getDbtrCtrlStVal("Pan")).thenReturn("testPan");
-
-        // Call the method under test
-        assertDoesNotThrow(() -> CashCoreUtil.encryptTransaction(mockTransaction));
-
-        // Verify encryption and updates
-        verify(mockTransaction).setDbtrFIAccountNumber("encryptedValue");
-        verify(mockTransaction).setCdrtFIAccountNumber("encryptedValue");
-        verify(mockTransaction).upsertExtndInfoCashCtrlSt("Pan", "encryptedValue");
-        verify(mockTransaction).upsertExtndInfoCrdrtrPmtAdvPstCtrlSt("Pan", "encryptedValue");
-        verify(mockTransaction).upsertExtndInfoDbtrPmtAdvPstCtrlSt("Pan", "encryptedValue");
+    public void testGetDisclosures_Success() {
+        given()
+            .port(port)
+            .header("Authorization", "Bearer your_token_here")
+            .contentType(ContentType.JSON)
+        .when()
+            .get("/disclosures")
+        .then()
+            .statusCode(200)
+            .body("$", not(empty())); // Ensure response is not empty
     }
 
     @Test
-    void testEncryptTransaction_HandlesNullValues() throws IOException {
-        // Mock transaction behavior with nulls
-        when(mockTransaction.getDbtrFIAccountNumber()).thenReturn(null);
-        when(mockTransaction.getCdrtFIAccountNumber()).thenReturn(null);
-        when(mockTransaction.getCashCtrlStVal("Pan")).thenReturn(null);
+    public void testAddDisclosure_Success() {
+        String requestBody = "{ \"disclosureData\": \"Sample Disclosure\" }";
 
-        // Call the method under test
-        assertDoesNotThrow(() -> CashCoreUtil.encryptTransaction(mockTransaction));
-
-        // Ensure encryption wasn't called for null values
-        verify(mockTransaction, never()).setDbtrFIAccountNumber(anyString());
-        verify(mockTransaction, never()).setCdrtFIAccountNumber(anyString());
-        verify(mockTransaction, never()).upsertExtndInfoCashCtrlSt(anyString(), anyString());
+        given()
+            .port(port)
+            .header("Authorization", "Bearer your_token_here")
+            .contentType(ContentType.JSON)
+            .body(requestBody)
+        .when()
+            .post("/disclosures")
+        .then()
+            .statusCode(201)
+            .body("id", notNullValue())
+            .body("disclosureData", equalTo("Sample Disclosure"));
     }
 
     @Test
-    void testEncryptTransaction_ThrowsIOExceptionOnEncryptionFailure() {
-        // Mock exception during encryption
-        when(mockTransaction.getDbtrFIAccountNumber()).thenReturn("123456789");
-        when(mockEncryptionHelper.encrypt(anyString())).thenThrow(new RuntimeException("Encryption failed"));
+    public void testCreateNewDisclosureVersion_Success() {
+        String requestBody = "{ \"disclosureId\": 1, \"newData\": \"Updated Version\" }";
 
-        // Verify IOException is thrown
-        IOException exception = assertThrows(IOException.class, () -> {
-            CashCoreUtil.encryptTransaction(mockTransaction);
-        });
+        given()
+            .port(port)
+            .header("Authorization", "Bearer your_token_here")
+            .contentType(ContentType.JSON)
+            .body(requestBody)
+        .when()
+            .post("/disclosures/new-version")
+        .then()
+            .statusCode(201)
+            .body("version", greaterThan(1));
+    }
 
-        assertTrue(exception.getMessage().contains("Failed to encrypt account numbers"));
+    @Test
+    public void testDeleteDisclosure_Success() {
+        given()
+            .port(port)
+            .header("Authorization", "Bearer your_token_here")
+            .contentType(ContentType.JSON)
+        .when()
+            .delete("/disclosures/1")
+        .then()
+            .statusCode(200);
     }
 }
