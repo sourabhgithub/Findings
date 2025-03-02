@@ -1,54 +1,105 @@
-plugins {
-    id 'java'
-    id 'org.apache.cxf.builder' version '4.0.5' // Ensure correct CXF plugin version
-}
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpHeaders;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.ResourceUtils;
 
-dependencies {
-    // Apache CXF dependencies (Jakarta compatible)
-    implementation 'org.apache.cxf:cxf-rt-frontend-jaxws:4.0.5'
-    implementation 'org.apache.cxf:cxf-rt-transports-http:4.0.5'
-    
-    // Jakarta XML and JAXB dependencies
-    implementation 'jakarta.xml.bind:jakarta.xml.bind-api:4.0.0'
-    implementation 'org.glassfish.jaxb:jaxb-runtime:4.0.3'
-    implementation 'jakarta.xml.ws:jakarta.xml.ws-api:4.0.0'
-    implementation 'jakarta.annotation:jakarta.annotation-api:2.1.1'
-}
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.util.Collections;
+import java.util.List;
 
-cxfCodegen {
-    wsdl2java { NamedDomainObjectContainer<WsdlOption> it ->
-        AcquisitionsService {
-            wsdl = file("${projectDir}/src/main/wsdl/AcquisitionsServiceBean.wsdl")
-        }
-        ECMContentServiceAOBeanService {
-            wsdl = file("${projectDir}/src/main/wsdl/ECMContentServiceAOBeanService.wsdl")
-        }
-        CorrespondanceRequestService {
-            wsdl = file("${projectDir}/src/main/wsdl/CorrespondanceRequestService.wsdl")
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+class RestClientConfigTest {
+
+    @InjectMocks
+    private RestClientConfig restClientConfig;
+
+    @Mock
+    private HttpDynamicConfigPropertyRepository httpDynamicConfigPropertyRepository;
+
+    @Mock
+    private OltpDynamicConfigPropertyRepository oltpDynamicConfigPropertyRepository;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void testCreateKeyStore() throws Exception {
+        URL dummyUrl = new URL("file://dummyPath");
+        char[] dummyPassword = "dummyPassword".toCharArray();
+
+        try (MockedStatic<ResourceUtils> mockedResourceUtils = Mockito.mockStatic(ResourceUtils.class)) {
+            mockedResourceUtils.when(() -> ResourceUtils.getURL(anyString())).thenReturn(dummyUrl);
+
+            KeyStore keyStore = restClientConfig.createKeyStore(dummyUrl, dummyPassword);
+            assertNotNull(keyStore);
         }
     }
 
-    wsdl2java.configureEach { it ->
-        outputDir = file("${buildDir}/generated-sources")
-        markGenerated = true
-        
-        // Force Jakarta namespace
-        args.addAll(
-            '-xjc', '-extension',
-            '-verbose',
-            '-encoding', 'UTF-8',
-            '-autoNameResolution',
-            '-exsh', 'true',
-            '-fe', 'jaxws21',  // Ensures JAX-WS 2.1 compatibility (Jakarta)
-            '-p', 'com.yourcompany.generated',
-            '-client',  // If you need client classes
-            '-server',  // If you need server classes
-            '-mark-generated',
-            '-validate',
-            '-jaxb21'  // **Forces Jakarta JAXB instead of javax**
-        )
+    @Test
+    void testRestUrl() {
+        OltpDynamicConfigProperty property = new OltpDynamicConfigProperty();
+        property.setPropValue("http://dummyUrl");
+        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
+                .thenReturn(Collections.singletonList(property));
+
+        String url = restClientConfig.restUrl();
+        assertEquals("http://dummyUrl/cash_business_svc/cash/settle/transaction", url);
+    }
+
+    @Test
+    void testIsKafkaOn() {
+        OltpDynamicConfigProperty property = new OltpDynamicConfigProperty();
+        property.setPropValue("true");
+        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
+                .thenReturn(Collections.singletonList(property));
+
+        boolean isKafkaOn = restClientConfig.isKafkaOn();
+        assertTrue(isKafkaOn);
+    }
+
+    @Test
+    void testIsKafkaSchemaOn() {
+        OltpDynamicConfigProperty property = new OltpDynamicConfigProperty();
+        property.setPropValue("true");
+        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
+                .thenReturn(Collections.singletonList(property));
+
+        boolean isKafkaSchemaOn = restClientConfig.isKafkaSchemaOn();
+        assertTrue(isKafkaSchemaOn);
+    }
+
+    @Test
+    void testGetHeaders() {
+        OltpDynamicConfigProperty userNameProperty = new OltpDynamicConfigProperty();
+        userNameProperty.setPropValue("encryptedUser");
+        OltpDynamicConfigProperty passwordProperty = new OltpDynamicConfigProperty();
+        passwordProperty.setPropValue("encryptedPassword");
+
+        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
+                .thenReturn(Collections.singletonList(userNameProperty))
+                .thenReturn(Collections.singletonList(passwordProperty));
+
+        HttpHeaders headers = restClientConfig.getHeaders();
+        assertNotNull(headers);
+        assertTrue(headers.containsKey("Authorization"));
     }
 }
-
-// Ensure wsdl2java runs before compileJava
-compileJava.dependsOn wsdl2java
