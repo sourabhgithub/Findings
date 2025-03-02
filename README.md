@@ -1,132 +1,71 @@
-import org.apache.http.impl.client.CloseableHttpClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
-import org.springframework.http.HttpHeaders;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.ResourceUtils;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
-import java.util.Collections;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
 
-class RestClientConfigTest {
-
-    @InjectMocks
-    private RestClientConfig restClientConfig;
-
-    @Mock
-    private HttpDynamicConfigPropertyRepository httpDynamicConfigPropertyRepository;
-
-    @Mock
-    private OltpDynamicConfigPropertyRepository oltpDynamicConfigPropertyRepository;
+class ConstantsTest {
 
     @BeforeEach
     void setUp() {
-        MockitoAnnotations.openMocks(this);
+        // Clear system properties before each test
+        System.clearProperty("ENV_DD");
+        System.clearProperty("jboss.server.name");
+        System.clearProperty("VAULT_CONFIG_FILES");
+        System.clearProperty("OUT_PATH");
+        System.clearProperty("BATCH_PATH");
+        System.clearProperty("UPWALL_PATH");
     }
 
     @Test
-    void testCreateHttpClient() throws Exception {
-        // Mock system properties
-        System.setProperty("KEYSTORE_PATH", "dummyKeyStorePath");
-        System.setProperty("javax.net.ssl.trustStore", "dummyTrustStorePath");
-        System.setProperty("javax.net.ssl.trustStorePassword", "dummyTrustStorePassword");
-
-        // Mock static methods
-        try (MockedStatic<CashCoreUtil> mockedCashCoreUtil = Mockito.mockStatic(CashCoreUtil.class);
-             MockedStatic<ResourceUtils> mockedResourceUtils = Mockito.mockStatic(ResourceUtils.class)) {
-
-            // Mock CashCoreUtil.retrieveKeystorePassword
-            mockedCashCoreUtil.when(() -> CashCoreUtil.retrieveKeystorePassword(anyString(), anyString()))
-                    .thenReturn("dummyPassword".toCharArray());
-
-            // Mock ResourceUtils.getURL
-            mockedResourceUtils.when(() -> ResourceUtils.getURL(anyString()))
-                    .thenReturn(new URL("file://dummyPath"));
-
-            // Call the method under test
-            CloseableHttpClient httpClient = restClientConfig.httpClient();
-
-            // Assertions
-            assertNotNull(httpClient);
-        }
+    void testConstantsValues() {
+        // Test constant values
+        assertEquals("70857", Constants.CASN_ALT);
+        assertEquals("ALT_70857_CASH", Constants.CASN_CLIENT_ID);
+        assertEquals("A", Constants.ADVICE_INO);
+        assertEquals("R", Constants.REVERSAL_INO);
+        assertEquals("CASN_ERROR: ", Constants.CASN_ERROR);
+        assertEquals("CASN_FATAL: ", Constants.CASN_FATAL);
+        assertEquals("CASN_APP", Constants.DATABASE_USER);
+        assertEquals("create/static-groups/CASN_APP", Constants.VAULT_UNT);
+        assertEquals("secrets/ldap/core/static-crew/70857-", Constants.LDAP_VAULT_UNT);
+        assertEquals("READY()", Constants.IMPALL_SERVICE_ID_LIE);
+        assertEquals("READY()", Constants.IMPALL_SERVICE_ID_PRO);
+        assertEquals("SEMACE1", Constants.KAFKA_SERVICE_ID_CASH_LIE);
+        assertEquals("SEMACE2", Constants.KAFKA_SERVICE_ID_CASH_PWD);
+        assertEquals("REMANCE1", Constants.KAFKA_SERVICE_ID_EGU_LIE);
+        assertEquals("REMANCE3", Constants.KAFKA_SERVICE_ID_EGU_PWD);
+        assertEquals("com.bgfg.vault.jdbc.Ondbfive?", Constants.VAULT_ONE_DET_PR_CLASS);
     }
 
     @Test
-    void testCreateKeyStore() throws Exception {
-        URL dummyUrl = new URL("file://dummyPath");
-        char[] dummyPassword = "dummyPassword".toCharArray();
-
-        try (MockedStatic<ResourceUtils> mockedResourceUtils = Mockito.mockStatic(ResourceUtils.class)) {
-            mockedResourceUtils.when(() -> ResourceUtils.getURL(anyString())).thenReturn(dummyUrl);
-
-            KeyStore keyStore = restClientConfig.createKeyStore(dummyUrl, dummyPassword);
-            assertNotNull(keyStore);
-        }
+    void testEnvironmentName() {
+        // Mock system property for ENV_DD
+        System.setProperty("ENV_DD", "testEnv");
+        assertEquals("testEnv", Constants.ENVIRONMENT_NAME);
     }
 
     @Test
-    void testRestUrl() {
-        OltpDynamicConfigProperty property = new OltpDynamicConfigProperty();
-        property.setPropValue("http://dummyUrl");
-        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
-                .thenReturn(Collections.singletonList(property));
-
-        String url = restClientConfig.restUrl();
-        assertEquals("http://dummyUrl/cash_business_svc/cash/settle/transaction", url);
+    void testAppName() {
+        // Mock system property for jboss.server.name
+        System.setProperty("jboss.server.name", "testApp");
+        assertEquals("testApp", Constants.APP_NAME);
     }
 
     @Test
-    void testIsKafkaOn() {
-        OltpDynamicConfigProperty property = new OltpDynamicConfigProperty();
-        property.setPropValue("true");
-        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
-                .thenReturn(Collections.singletonList(property));
+    void testStaticBlockForVault() {
+        // Verify that the static block sets VAULT_CONFIG_FILES correctly
+        System.setProperty("ENV_DD", "testEnv");
+        assertNull(System.getProperty("VAULT_CONFIG_FILES"));
+        assertNull(System.getProperty("OUT_PATH"));
+        assertNull(System.getProperty("BATCH_PATH"));
+        assertNull(System.getProperty("UPWALL_PATH"));
 
-        boolean isKafkaOn = restClientConfig.isKafkaOn();
-        assertTrue(isKafkaOn);
-    }
+        // Trigger static block
+        new Constants();
 
-    @Test
-    void testIsKafkaSchemaOn() {
-        OltpDynamicConfigProperty property = new OltpDynamicConfigProperty();
-        property.setPropValue("true");
-        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
-                .thenReturn(Collections.singletonList(property));
-
-        boolean isKafkaSchemaOn = restClientConfig.isKafkaSchemaOn();
-        assertTrue(isKafkaSchemaOn);
-    }
-
-    @Test
-    void testGetHeaders() {
-        OltpDynamicConfigProperty userNameProperty = new OltpDynamicConfigProperty();
-        userNameProperty.setPropValue("encryptedUser");
-        OltpDynamicConfigProperty passwordProperty = new OltpDynamicConfigProperty();
-        passwordProperty.setPropValue("encryptedPassword");
-
-        when(oltpDynamicConfigPropertyRepository.findByPropNameIgnoreCase(anyString()))
-                .thenReturn(Collections.singletonList(userNameProperty))
-                .thenReturn(Collections.singletonList(passwordProperty));
-
-        HttpHeaders headers = restClientConfig.getHeaders();
-        assertNotNull(headers);
-        assertTrue(headers.containsKey("Authorization"));
+        assertEquals("classpath:vault/testEnv.json", System.getProperty("VAULT_CONFIG_FILES"));
+        assertEquals("/hosting/apps/vault/data_mn/server-id.txt", System.getProperty("OUT_PATH"));
+        assertEquals("/hosting/apps/vault/batch_db/server-id.txt", System.getProperty("BATCH_PATH"));
+        assertEquals("/hosting/apps/vault/mn/db/server-id.txt", System.getProperty("UPWALL_PATH"));
     }
 }
