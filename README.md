@@ -42,6 +42,33 @@ class RestClientConfigTest {
     }
 
     @Test
+    void testCreateHttpClient() throws Exception {
+        // Mock system properties
+        System.setProperty("KEYSTORE_PATH", "dummyKeyStorePath");
+        System.setProperty("javax.net.ssl.trustStore", "dummyTrustStorePath");
+        System.setProperty("javax.net.ssl.trustStorePassword", "dummyTrustStorePassword");
+
+        // Mock static methods
+        try (MockedStatic<CashCoreUtil> mockedCashCoreUtil = Mockito.mockStatic(CashCoreUtil.class);
+             MockedStatic<ResourceUtils> mockedResourceUtils = Mockito.mockStatic(ResourceUtils.class)) {
+
+            // Mock CashCoreUtil.retrieveKeystorePassword
+            mockedCashCoreUtil.when(() -> CashCoreUtil.retrieveKeystorePassword(anyString(), anyString()))
+                    .thenReturn("dummyPassword".toCharArray());
+
+            // Mock ResourceUtils.getURL
+            mockedResourceUtils.when(() -> ResourceUtils.getURL(anyString()))
+                    .thenReturn(new URL("file://dummyPath"));
+
+            // Call the method under test
+            CloseableHttpClient httpClient = restClientConfig.httpClient();
+
+            // Assertions
+            assertNotNull(httpClient);
+        }
+    }
+
+    @Test
     void testCreateKeyStore() throws Exception {
         URL dummyUrl = new URL("file://dummyPath");
         char[] dummyPassword = "dummyPassword".toCharArray();
