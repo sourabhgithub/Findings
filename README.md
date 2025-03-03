@@ -1,72 +1,116 @@
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import javax.sql.DataSource;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-public class VaultKafkaCredentialProviderTest {
+public class VaultDatabaseProviderTest {
 
-    private static final String ENVIRONMENT_NAME = "DEV1"; // Example environment
-    private static final String KAFKA_SERVICE_ID_CASH_LLE = "cash_lle";
-    private static final String KAFKA_SERVICE_ID_EEH_LLE = "eeh_lle";
+    private static final String ENVIRONMENT_NAME = "DEV";
     private static final String ROLE_ID = "test-role-id";
+    private static final String VAULT_URI = "test-vault-uri";
+    private static final String VAULT_ONE_DRIVER_CLASS = "test-driver-class";
 
     @BeforeEach
     public void setup() {
-        // Mock the static methods
-        try (MockedStatic<VaultSecretRoleIdProvider> mockedRoleIdProvider = Mockito.mockStatic(VaultSecretRoleIdProvider.class);
-             MockedStatic<VaultFactory> mockedVaultFactory = Mockito.mockStatic(VaultFactory.class)) {
+        // Mock static methods
+        try (MockedStatic<Constants> mockedConstants = Mockito.mockStatic(Constants.class);
+             MockedStatic<VaultSecretRoleIdProvider> mockedRoleIdProvider = Mockito.mockStatic(VaultSecretRoleIdProvider.class);
+             MockedStatic<DataSourceUrlPopulation> mockedUrlPopulation = Mockito.mockStatic(DataSourceUrlPopulation.class)) {
+
+            // Mock environment name
+            mockedConstants.when(Constants::ENVIRONMENT_NAME).thenReturn(ENVIRONMENT_NAME);
 
             // Mock roleId provider
-            mockedRoleIdProvider.when(VaultSecretRoleIdProvider::getRoleId).thenReturn(ROLE_ID);
+            mockedRoleIdProvider.when(() -> VaultSecretRoleIdProvider.getRoleId(anyBoolean())).thenReturn(ROLE_ID);
 
-            // Mock VaultContext
-            VaultContext mockVaultContext = mock(VaultContext.class);
-            when(mockVaultContext.getSecret(anyString(), eq("corp"), eq(VaultEngine.LDAP)))
-                    .thenReturn(new HashMap<>());
-
-            // Mock VaultFactory
-            mockedVaultFactory.when(() -> VaultFactory.getInstance(ROLE_ID)).thenReturn(mockVaultContext);
+            // Mock URL population
+            mockedUrlPopulation.when(() -> DataSourceUrlPopulation.getBatchUrl(ENVIRONMENT_NAME)).thenReturn("jdbc:test-batch-url");
+            mockedUrlPopulation.when(() -> DataSourceUrlPopulation.getReadOnlyUrl(ENVIRONMENT_NAME)).thenReturn("jdbc:test-ro-url");
         }
     }
 
     @Test
-    public void testGetKafkaCredentialCash() throws VaultConfigurationException, IOException {
-        // Arrange
-        Map<String, String> expectedCredentials = new HashMap<>();
-        expectedCredentials.put("key", "value");
+    public void testGetDefaultDataSource() {
+        // Act
+        DataSource dataSource = VaultDatabaseProvider.getDefaultDataSource();
 
-        try (MockedStatic<VaultKafkaCredentialProvider> mockedProvider = Mockito.mockStatic(VaultKafkaCredentialProvider.class)) {
-            mockedProvider.when(() -> VaultKafkaCredentialProvider.getServiceAccountCash()).thenReturn(KAFKA_SERVICE_ID_CASH_LLE);
+        // Assert
+        assertNotNull(dataSource);
+        assertTrue(dataSource instanceof HikariDataSource);
 
-            // Act
-            Map<String, String> credentials = VaultKafkaCredentialProvider.getKafkaCredentialCash();
-
-            // Assert
-            assertEquals(expectedCredentials, credentials);
-        }
+        // Verify that the DataSource is cached
+        DataSource cachedDataSource = VaultDatabaseProvider.getDefaultDataSource();
+        assertEquals(dataSource, cachedDataSource);
     }
 
     @Test
-    public void testGetKafkaCredentialEeh() throws VaultConfigurationException, IOException {
-        // Arrange
-        Map<String, String> expectedCredentials = new HashMap<>();
-        expectedCredentials.put("key", "value");
+    public void testCreateDataSource_Batch() {
+        // Act
+        DataSource dataSource = VaultDatabaseProvider.createDataSource(true);
 
-        try (MockedStatic<VaultKafkaCredentialProvider> mockedProvider = Mockito.mockStatic(VaultKafkaCredentialProvider.class)) {
-            mockedProvider.when(() -> VaultKafkaCredentialProvider.getServiceAccountEeh()).thenReturn(KAFKA_SERVICE_ID_EEH_LLE);
+        // Assert
+        assertNotNull(dataSource);
+        assertTrue(dataSource instanceof HikariDataSource);
 
-            // Act
-            Map<String, String> credentials = VaultKafkaCredentialProvider.getKafkaCredentialEeh();
+        HikariConfig config = ((HikariDataSource) dataSource).getHikariConfig();
+        assertEquals("jdbc:test-batch-url", config.getJdbcUrl());
+        assertEquals(ROLE_ID, config.getUsername());
+        assertEquals(VAULT_URI, config.getPassword());
+        assertEquals("BatchDataSourceCP", config.getPoolName());
+    }
 
-            // Assert
-            assertEquals(expectedCredentials, credentials);
-        }
+    @Test
+    public void testCreateDataSource_NonBatch() {
+        // Act
+        DataSource dataSource = VaultDatabaseProvider.createDataSource(false);
+
+        // Assert
+        assertNotNull(dataSource);
+        assertTrue(dataSource instanceof HikariDataSource);
+
+        HikariConfig config = ((HikariDataSource) dataSource).getHikariConfig();
+        assertEquals("jdbc:test-batch-url", config.getJdbcUrl());
+        assertEquals(ROLE_ID, config.getUsername());
+        assertEquals(VAULT_URI, config.getPassword());
+        assertEquals("TransactionDataSourceCP", config.getPoolName());
+    }
+
+    @Test
+    public void testCreateReadOnlyDataSource() {
+        // Act
+        DataSource dataSource = VaultDatabaseProvider.createReadOnlyDataSource();
+
+        // Assert
+        assertNotNull(dataSource);
+        assertTrue(dataSource instanceof HikariDataSource);
+
+        HikariConfig config = ((HikariDataSource) dataSource).getHikariConfig();
+        assertEquals("jdbc:test-ro-url", config.getJdbcUrl());
+        assertEquals(ROLE_ID, config.getUsername());
+        assertEquals(VAULT_URI, config.getPassword());
+        assertEquals("RO-BatchDataSourceCP", config.getPoolName());
+    }
+
+    @Test
+    public void testCreateImpalaDataSource() {
+        // Act
+        DataSource dataSource = VaultDatabaseProvider.createImpalaDataSource(true);
+
+        // Assert
+        assertNotNull(dataSource);
+        assertTrue(dataSource instanceof HikariDataSource);
+
+        HikariConfig config = ((HikariDataSource) dataSource).getHikariConfig();
+        assertTrue(config.getJdbcUrl().contains("UseNativeQuery=1"));
+        assertEquals(ROLE_ID, config.getUsername());
+        assertEquals(VAULT_URI, config.getPassword());
+        assertEquals("ImpalaDataSourceCP", config.getPoolName());
     }
 }
